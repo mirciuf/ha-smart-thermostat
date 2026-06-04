@@ -132,7 +132,11 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         if cool_switch:
             self._attr_hvac_modes.append(HVACMode.COOL)
 
-        self._attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
+        self._attr_supported_features = (
+            ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.TURN_ON
+            | ClimateEntityFeature.TURN_OFF
+        )
 
     # ------------------------------------------------------------------ #
     #  Properties
@@ -378,6 +382,17 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
 
         self._attr_hvac_mode = hvac_mode
         await self._async_control()
+
+    async def async_turn_on(self) -> None:
+        """Turn on — default to HEAT mode."""
+        if HVACMode.HEAT in self._attr_hvac_modes:
+            await self.async_set_hvac_mode(HVACMode.HEAT)
+        elif len(self._attr_hvac_modes) > 1:
+            await self.async_set_hvac_mode(self._attr_hvac_modes[1])
+
+    async def async_turn_off(self) -> None:
+        """Turn off."""
+        await self.async_set_hvac_mode(HVACMode.OFF)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set target temperature."""
