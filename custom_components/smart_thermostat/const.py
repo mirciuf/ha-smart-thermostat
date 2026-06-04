@@ -37,3 +37,8 @@ ATTR_OUTDOOR_TEMP = "outdoor_temperature"
 ATTR_HEAT_SWITCH = "heat_switch"
 ATTR_COOL_SWITCH = "cool_switch"
 ATTR_TEMP_SENSOR = "temp_sensor"
+
+# Presets
+CONF_PRESETS = "presets"
+PRESET_NONE = "none"
+ATTR_PRESETS = "presets"

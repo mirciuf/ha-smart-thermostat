@@ -1,6 +1,7 @@
 """Config flow for Smart Thermostat integration."""
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -22,6 +23,7 @@ from .const import (
     CONF_OUTDOOR_TEMP_THRESHOLD,
     CONF_MIN_TEMP,
     CONF_MAX_TEMP,
+    CONF_PRESETS,
     DEFAULT_TARGET_TEMP,
     DEFAULT_HYSTERESIS,
     DEFAULT_OUTDOOR_THRESHOLD,
@@ -32,18 +34,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def _get_entities(hass, domain):
-    """Get all entities of a given domain."""
-    result = {}
-    for state in hass.states.async_all(domain):
-        eid = state.entity_id
-        name = state.attributes.get("friendly_name", eid)
-        result[eid] = f"{name} ({eid})"
-    return dict(sorted(result.items(), key=lambda x: x[1]))
-
-
 def _get_temp_sensors(hass):
-    """Get all temperature sensors."""
     result = {}
     for state in hass.states.async_all("sensor"):
         eid = state.entity_id
@@ -55,8 +46,16 @@ def _get_temp_sensors(hass):
     return dict(sorted(result.items(), key=lambda x: x[1]))
 
 
+def _get_switches(hass):
+    result = {}
+    for state in hass.states.async_all("switch"):
+        eid = state.entity_id
+        name = state.attributes.get("friendly_name", eid)
+        result[eid] = f"{name} ({eid})"
+    return dict(sorted(result.items(), key=lambda x: x[1]))
+
+
 def _get_window_sensors(hass):
-    """Get door/window binary sensors."""
     result = {}
     WINDOW_CLASSES = {"door", "window", "opening", "garage_door"}
     for state in hass.states.async_all("binary_sensor"):
@@ -74,11 +73,10 @@ class SmartThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     async def async_step_user(self, user_input=None):
-        """Handle the initial step — basic config."""
         errors = {}
 
         temp_sensors = _get_temp_sensors(self.hass)
-        switches = _get_entities(self.hass, "switch")
+        switches = _get_switches(self.hass)
         window_sensors = _get_window_sensors(self.hass)
 
         if not temp_sensors:
@@ -86,7 +84,6 @@ class SmartThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not switches:
             return self.async_abort(reason="no_switches")
 
-        # Add "none" option for optional fields
         optional_sensors = {"none": "— Fără senzor —", **window_sensors}
         optional_temp = {"none": "— Fără senzor exterior —", **temp_sensors}
         optional_switch = {"none": "— Fără switch AC —", **switches}
@@ -99,14 +96,14 @@ class SmartThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors[CONF_TEMP_SENSOR] = "entity_required"
             elif not user_input.get(CONF_HEAT_SWITCH):
                 errors[CONF_HEAT_SWITCH] = "entity_required"
-            elif user_input.get(CONF_MIN_TEMP, 0) >= user_input.get(CONF_MAX_TEMP, 0):
+            elif float(user_input.get(CONF_MIN_TEMP, 0)) >= float(user_input.get(CONF_MAX_TEMP, 0)):
                 errors[CONF_MIN_TEMP] = "invalid_range"
             else:
-                # Clean up "none" selections
                 data = dict(user_input)
                 for key in [CONF_COOL_SWITCH, CONF_WINDOW_SENSOR, CONF_OUTDOOR_SENSOR]:
                     if data.get(key) == "none":
                         data[key] = None
+                data[CONF_PRESETS] = "{}"
 
                 await self.async_set_unique_id(f"{DOMAIN}_{name}")
                 self._abort_if_unique_id_configured()
@@ -119,28 +116,14 @@ class SmartThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional(CONF_COOL_SWITCH, default="none"): vol.In(optional_switch),
             vol.Optional(CONF_WINDOW_SENSOR, default="none"): vol.In(optional_sensors),
             vol.Optional(CONF_OUTDOOR_SENSOR, default="none"): vol.In(optional_temp),
-            vol.Required(CONF_TARGET_TEMP, default=DEFAULT_TARGET_TEMP): vol.All(
-                vol.Coerce(float), vol.Range(min=5, max=35)
-            ),
-            vol.Required(CONF_HYSTERESIS, default=DEFAULT_HYSTERESIS): vol.All(
-                vol.Coerce(float), vol.Range(min=0, max=2)
-            ),
-            vol.Required(CONF_OUTDOOR_TEMP_THRESHOLD, default=DEFAULT_OUTDOOR_THRESHOLD): vol.All(
-                vol.Coerce(float), vol.Range(min=0, max=40)
-            ),
-            vol.Required(CONF_MIN_TEMP, default=DEFAULT_MIN_TEMP): vol.All(
-                vol.Coerce(float), vol.Range(min=5, max=30)
-            ),
-            vol.Required(CONF_MAX_TEMP, default=DEFAULT_MAX_TEMP): vol.All(
-                vol.Coerce(float), vol.Range(min=10, max=35)
-            ),
+            vol.Required(CONF_TARGET_TEMP, default=DEFAULT_TARGET_TEMP): vol.All(vol.Coerce(float), vol.Range(min=5, max=35)),
+            vol.Required(CONF_HYSTERESIS, default=DEFAULT_HYSTERESIS): vol.All(vol.Coerce(float), vol.Range(min=0, max=2)),
+            vol.Required(CONF_OUTDOOR_TEMP_THRESHOLD, default=DEFAULT_OUTDOOR_THRESHOLD): vol.All(vol.Coerce(float), vol.Range(min=0, max=40)),
+            vol.Required(CONF_MIN_TEMP, default=DEFAULT_MIN_TEMP): vol.All(vol.Coerce(float), vol.Range(min=5, max=30)),
+            vol.Required(CONF_MAX_TEMP, default=DEFAULT_MAX_TEMP): vol.All(vol.Coerce(float), vol.Range(min=10, max=35)),
         })
 
-        return self.async_show_form(
-            step_id="user",
-            data_schema=schema,
-            errors=errors,
-        )
+        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
     @staticmethod
     @callback
@@ -149,35 +132,44 @@ class SmartThermostatConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class SmartThermostatOptionsFlow(config_entries.OptionsFlow):
-    """Handle options flow."""
+    """Options flow with preset management."""
 
     def _current(self):
         return {**self.config_entry.data, **self.config_entry.options}
 
+    def _get_presets(self) -> dict[str, float]:
+        current = self._current()
+        raw = current.get(CONF_PRESETS, "{}")
+        try:
+            return json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
     async def async_step_init(self, user_input=None):
-        """Show options menu."""
         if user_input is not None:
             action = user_input.get("action")
             if action == "edit_config":
                 return await self.async_step_edit_config()
             if action == "edit_params":
                 return await self.async_step_edit_params()
+            if action == "manage_presets":
+                return await self.async_step_manage_presets()
 
         schema = vol.Schema({
             vol.Required("action"): vol.In({
-                "edit_config": "Modifica configuratia (senzori, switch-uri)",
-                "edit_params": "Modifica parametrii (temperatura, histereza, prag exterior)",
+                "edit_config":      "Modifica senzori si switch-uri",
+                "edit_params":      "Modifica parametrii (temperatura, histereza, prag exterior)",
+                "manage_presets":   "Gestioneaza preseturi",
             }),
         })
         return self.async_show_form(step_id="init", data_schema=schema)
 
     async def async_step_edit_config(self, user_input=None):
-        """Edit sensors and switches."""
         errors = {}
         current = self._current()
 
         temp_sensors = _get_temp_sensors(self.hass)
-        switches = _get_entities(self.hass, "switch")
+        switches = _get_switches(self.hass)
         window_sensors = _get_window_sensors(self.hass)
 
         optional_sensors = {"none": "— Fără senzor —", **window_sensors}
@@ -203,36 +195,112 @@ class SmartThermostatOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(CONF_WINDOW_SENSOR, default=current.get(CONF_WINDOW_SENSOR) or "none"): vol.In(optional_sensors),
             vol.Optional(CONF_OUTDOOR_SENSOR, default=current.get(CONF_OUTDOOR_SENSOR) or "none"): vol.In(optional_temp),
         })
-
         return self.async_show_form(step_id="edit_config", data_schema=schema, errors=errors)
 
     async def async_step_edit_params(self, user_input=None):
-        """Edit temperature parameters."""
         errors = {}
         current = self._current()
 
         if user_input is not None:
-            if user_input.get(CONF_MIN_TEMP, 0) >= user_input.get(CONF_MAX_TEMP, 0):
+            if float(user_input.get(CONF_MIN_TEMP, 0)) >= float(user_input.get(CONF_MAX_TEMP, 0)):
                 errors[CONF_MIN_TEMP] = "invalid_range"
             else:
                 return self.async_create_entry(title="", data={**self.config_entry.options, **user_input})
 
         schema = vol.Schema({
-            vol.Required(CONF_TARGET_TEMP, default=float(current.get(CONF_TARGET_TEMP, DEFAULT_TARGET_TEMP))): vol.All(
+            vol.Required(CONF_TARGET_TEMP, default=float(current.get(CONF_TARGET_TEMP, DEFAULT_TARGET_TEMP))): vol.All(vol.Coerce(float), vol.Range(min=5, max=35)),
+            vol.Required(CONF_HYSTERESIS, default=float(current.get(CONF_HYSTERESIS, DEFAULT_HYSTERESIS))): vol.All(vol.Coerce(float), vol.Range(min=0, max=2)),
+            vol.Required(CONF_OUTDOOR_TEMP_THRESHOLD, default=float(current.get(CONF_OUTDOOR_TEMP_THRESHOLD, DEFAULT_OUTDOOR_THRESHOLD))): vol.All(vol.Coerce(float), vol.Range(min=0, max=40)),
+            vol.Required(CONF_MIN_TEMP, default=float(current.get(CONF_MIN_TEMP, DEFAULT_MIN_TEMP))): vol.All(vol.Coerce(float), vol.Range(min=5, max=30)),
+            vol.Required(CONF_MAX_TEMP, default=float(current.get(CONF_MAX_TEMP, DEFAULT_MAX_TEMP))): vol.All(vol.Coerce(float), vol.Range(min=10, max=35)),
+        })
+        return self.async_show_form(step_id="edit_params", data_schema=schema, errors=errors)
+
+    async def async_step_manage_presets(self, user_input=None):
+        """Show preset management menu."""
+        presets = self._get_presets()
+
+        if user_input is not None:
+            action = user_input.get("preset_action")
+            if action == "add":
+                return await self.async_step_add_preset()
+            if action == "delete" and presets:
+                return await self.async_step_delete_preset()
+
+        options = {"add": "➕ Adauga preset nou"}
+        if presets:
+            options["delete"] = "🗑️ Sterge un preset"
+
+        # Show existing presets as info
+        preset_list = "\n".join([f"• {name}: {temp}°C" for name, temp in presets.items()])
+
+        schema = vol.Schema({
+            vol.Required("preset_action"): vol.In(options),
+        })
+
+        return self.async_show_form(
+            step_id="manage_presets",
+            data_schema=schema,
+            description_placeholders={
+                "preset_list": preset_list if preset_list else "Nu există preseturi configurate.",
+            },
+        )
+
+    async def async_step_add_preset(self, user_input=None):
+        """Add a new preset."""
+        errors = {}
+        presets = self._get_presets()
+
+        if user_input is not None:
+            name = user_input.get("preset_name", "").strip()
+            temp = user_input.get("preset_temp")
+
+            if not name:
+                errors["preset_name"] = "name_required"
+            elif temp is None:
+                errors["preset_temp"] = "invalid_value"
+            else:
+                presets[name] = float(temp)
+                new_options = {**self.config_entry.options, CONF_PRESETS: json.dumps(presets)}
+                return self.async_create_entry(title="", data=new_options)
+
+        current = self._current()
+        schema = vol.Schema({
+            vol.Required("preset_name"): str,
+            vol.Required("preset_temp", default=float(current.get(CONF_TARGET_TEMP, DEFAULT_TARGET_TEMP))): vol.All(
                 vol.Coerce(float), vol.Range(min=5, max=35)
-            ),
-            vol.Required(CONF_HYSTERESIS, default=float(current.get(CONF_HYSTERESIS, DEFAULT_HYSTERESIS))): vol.All(
-                vol.Coerce(float), vol.Range(min=0, max=2)
-            ),
-            vol.Required(CONF_OUTDOOR_TEMP_THRESHOLD, default=float(current.get(CONF_OUTDOOR_TEMP_THRESHOLD, DEFAULT_OUTDOOR_THRESHOLD))): vol.All(
-                vol.Coerce(float), vol.Range(min=0, max=40)
-            ),
-            vol.Required(CONF_MIN_TEMP, default=float(current.get(CONF_MIN_TEMP, DEFAULT_MIN_TEMP))): vol.All(
-                vol.Coerce(float), vol.Range(min=5, max=30)
-            ),
-            vol.Required(CONF_MAX_TEMP, default=float(current.get(CONF_MAX_TEMP, DEFAULT_MAX_TEMP))): vol.All(
-                vol.Coerce(float), vol.Range(min=10, max=35)
             ),
         })
 
-        return self.async_show_form(step_id="edit_params", data_schema=schema, errors=errors)
+        return self.async_show_form(
+            step_id="add_preset",
+            data_schema=schema,
+            errors=errors,
+        )
+
+    async def async_step_delete_preset(self, user_input=None):
+        """Delete an existing preset."""
+        errors = {}
+        presets = self._get_presets()
+
+        if not presets:
+            return await self.async_step_manage_presets()
+
+        if user_input is not None:
+            name = user_input.get("preset_to_delete")
+            if name and name in presets:
+                del presets[name]
+                new_options = {**self.config_entry.options, CONF_PRESETS: json.dumps(presets)}
+                return self.async_create_entry(title="", data=new_options)
+
+        schema = vol.Schema({
+            vol.Required("preset_to_delete"): vol.In(
+                {name: f"{name} ({temp}°C)" for name, temp in presets.items()}
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="delete_preset",
+            data_schema=schema,
+            errors=errors,
+        )
