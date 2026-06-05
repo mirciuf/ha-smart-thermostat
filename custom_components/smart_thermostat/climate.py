@@ -250,6 +250,9 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         if self._outdoor_sensor and entity_id == self._outdoor_sensor:
             self._update_outdoor_temp()
             changed = True
+        # Update state when switches change externally
+        if entity_id in (self._heat_switch, self._cool_switch):
+            changed = True
 
         if changed:
             self.hass.async_create_task(self._async_control())
