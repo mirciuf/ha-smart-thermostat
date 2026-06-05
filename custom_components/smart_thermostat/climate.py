@@ -22,9 +22,12 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
+    NAME,
+    VERSION,
     DOMAIN,
     CONF_THERMOSTAT_NAME,
     CONF_TEMP_SENSOR,
@@ -120,6 +123,13 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         self._entry_id = entry_id
         self._attr_name = name
         self._attr_unique_id = f"{DOMAIN}_{entry_id}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry_id)},
+            name=name,
+            manufacturer="Smart Thermostat",
+            model="Smart Thermostat v" + VERSION,
+            sw_version=VERSION,
+        )
 
         # Config
         self._temp_sensor = temp_sensor
