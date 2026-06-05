@@ -126,7 +126,7 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry_id)},
             name=name,
-            manufacturer="Smart Thermostat",
+            manufacturer="TopTech Labs",
             model="Smart Thermostat v" + VERSION,
             sw_version=VERSION,
         )
