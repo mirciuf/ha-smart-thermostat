@@ -22,18 +22,19 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import (
+    DOMAIN,
     NAME,
     VERSION,
-    DOMAIN,
     CONF_THERMOSTAT_NAME,
     CONF_TEMP_SENSOR,
     CONF_HEAT_SWITCH,
     CONF_COOL_SWITCH,
     CONF_WINDOW_SENSOR,
+    CONF_WINDOW_SENSOR_2,
     CONF_OUTDOOR_SENSOR,
     CONF_TARGET_TEMP,
     CONF_HYSTERESIS,
@@ -41,6 +42,8 @@ from .const import (
     CONF_MIN_TEMP,
     CONF_MAX_TEMP,
     CONF_PRESETS,
+    CONF_AC_SCENE_COOL_ON,
+    CONF_AC_SCENE_COOL_OFF,
     DEFAULT_TARGET_TEMP,
     DEFAULT_HYSTERESIS,
     DEFAULT_OUTDOOR_THRESHOLD,
@@ -54,6 +57,8 @@ from .const import (
     ATTR_COOL_SWITCH,
     ATTR_TEMP_SENSOR,
     ATTR_PRESETS,
+    ATTR_AC_SCENE_COOL_ON,
+    ATTR_AC_SCENE_COOL_OFF,
     PRESET_NONE,
 )
 
@@ -65,10 +70,8 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Smart Thermostat climate entity."""
     config = {**entry.data, **entry.options}
 
-    # Parse presets — stored as JSON string
     presets_raw = config.get(CONF_PRESETS, "{}")
     try:
         presets = json.loads(presets_raw) if isinstance(presets_raw, str) else presets_raw
@@ -83,6 +86,7 @@ async def async_setup_entry(
         heat_switch=config[CONF_HEAT_SWITCH],
         cool_switch=config.get(CONF_COOL_SWITCH),
         window_sensor=config.get(CONF_WINDOW_SENSOR),
+        window_sensor_2=config.get(CONF_WINDOW_SENSOR_2),
         outdoor_sensor=config.get(CONF_OUTDOOR_SENSOR),
         target_temp=float(config.get(CONF_TARGET_TEMP, DEFAULT_TARGET_TEMP)),
         hysteresis=float(config.get(CONF_HYSTERESIS, DEFAULT_HYSTERESIS)),
@@ -90,13 +94,14 @@ async def async_setup_entry(
         min_temp=float(config.get(CONF_MIN_TEMP, DEFAULT_MIN_TEMP)),
         max_temp=float(config.get(CONF_MAX_TEMP, DEFAULT_MAX_TEMP)),
         presets=presets,
+        ac_scene_cool_on=config.get(CONF_AC_SCENE_COOL_ON),
+        ac_scene_cool_off=config.get(CONF_AC_SCENE_COOL_OFF),
     )
 
     async_add_entities([thermostat], True)
 
 
 class SmartThermostat(RestoreEntity, ClimateEntity):
-    """Smart Thermostat climate entity."""
 
     _attr_should_poll = False
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
@@ -111,6 +116,7 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         heat_switch: str,
         cool_switch: str | None,
         window_sensor: str | None,
+        window_sensor_2: str | None,
         outdoor_sensor: str | None,
         target_temp: float,
         hysteresis: float,
@@ -118,6 +124,8 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         min_temp: float,
         max_temp: float,
         presets: dict[str, float],
+        ac_scene_cool_on: str | None,
+        ac_scene_cool_off: str | None,
     ) -> None:
         self.hass = hass
         self._entry_id = entry_id
@@ -136,13 +144,22 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         self._heat_switch = heat_switch
         self._cool_switch = cool_switch
         self._window_sensor = window_sensor
+        self._window_sensor_2 = window_sensor_2
         self._outdoor_sensor = outdoor_sensor
         self._hysteresis = hysteresis
         self._outdoor_threshold = outdoor_threshold
         self._attr_min_temp = min_temp
         self._attr_max_temp = max_temp
+        self._ac_scene_cool_on = ac_scene_cool_on
+        self._ac_scene_cool_off = ac_scene_cool_off
 
-        # Presets — dict of {name: temperature}
+        # Determine if cool mode is available
+        # Cool is available if we have a switch OR both scenes
+        self._has_cool = bool(
+            cool_switch or (ac_scene_cool_on and ac_scene_cool_off)
+        )
+
+        # Presets
         self._presets = presets
         self._attr_preset_mode = PRESET_NONE
 
@@ -155,10 +172,10 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
 
         # HVAC modes
         self._attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT]
-        if cool_switch:
+        if self._has_cool:
             self._attr_hvac_modes.append(HVACMode.COOL)
 
-        # Preset modes list
+        # Preset modes
         self._attr_preset_modes = [PRESET_NONE] + list(presets.keys())
 
         # Supported features
@@ -184,6 +201,9 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
             return HVACAction.HEATING
         if self._cool_switch and self._is_switch_on(self._cool_switch):
             return HVACAction.COOLING
+        # For scene-based cool — check if cool mode is active
+        if self._ac_scene_cool_on and self._attr_hvac_mode == HVACMode.COOL:
+            return HVACAction.COOLING
         return HVACAction.IDLE
 
     @property
@@ -196,6 +216,8 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
             ATTR_TEMP_SENSOR: self._temp_sensor,
             ATTR_HEAT_SWITCH: self._heat_switch,
             ATTR_COOL_SWITCH: self._cool_switch,
+            ATTR_AC_SCENE_COOL_ON: self._ac_scene_cool_on,
+            ATTR_AC_SCENE_COOL_OFF: self._ac_scene_cool_off,
             ATTR_PRESETS: self._presets,
         }
 
@@ -204,31 +226,24 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
     # ------------------------------------------------------------------ #
 
     async def async_added_to_hass(self) -> None:
-        """Restore state and subscribe to events."""
         await super().async_added_to_hass()
 
         last_state = await self.async_get_last_state()
         if last_state and last_state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             try:
+                # Restore HVAC mode and preset from last state
                 mode = last_state.state
                 if mode in [HVACMode.HEAT, HVACMode.COOL, HVACMode.OFF]:
                     self._attr_hvac_mode = mode
-
                 target = last_state.attributes.get(ATTR_TEMPERATURE)
                 if target is not None:
                     self._attr_target_temperature = float(target)
-
-                self._hysteresis = float(
-                    last_state.attributes.get(ATTR_HYSTERESIS, self._hysteresis)
-                )
-                self._outdoor_threshold = float(
-                    last_state.attributes.get(ATTR_OUTDOOR_THRESHOLD, self._outdoor_threshold)
-                )
-
                 preset = last_state.attributes.get("preset_mode", PRESET_NONE)
                 if preset in self._attr_preset_modes:
                     self._attr_preset_mode = preset
-
+                # NOTE: hysteresis and outdoor_threshold are NOT restored from
+                # last_state — they come from config/options which are already
+                # set in __init__ and always reflect the latest saved values.
             except (ValueError, TypeError) as err:
                 _LOGGER.warning("Could not restore state for %s: %s", self._attr_name, err)
 
@@ -257,10 +272,12 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         if self._window_sensor and entity_id == self._window_sensor:
             self._update_window_state()
             changed = True
+        if self._window_sensor_2 and entity_id == self._window_sensor_2:
+            self._update_window_state()
+            changed = True
         if self._outdoor_sensor and entity_id == self._outdoor_sensor:
             self._update_outdoor_temp()
             changed = True
-        # Update state when switches change externally
         if entity_id in (self._heat_switch, self._cool_switch):
             changed = True
 
@@ -280,12 +297,78 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
                 self._attr_current_temperature = None
 
     def _update_window_state(self) -> None:
-        if not self._window_sensor:
-            self._window_open = False
+        """Window open if ANY available sensor reports open.
+        Unavailable/unknown sensors are ignored — treated as if not configured.
+        A persistent notification is fired when a sensor goes unavailable.
+        """
+        ACTIVE = {STATE_ON, STATE_OPEN, "on", "open"}
+        UNAVAILABLE = {STATE_UNAVAILABLE, STATE_UNKNOWN, "unavailable", "unknown"}
+        open1 = False
+        open2 = False
+
+        if self._window_sensor:
+            state = self.hass.states.get(self._window_sensor)
+            if state is None or state.state in UNAVAILABLE:
+                self._notify_sensor_offline(self._window_sensor)
+            else:
+                # Sensor back online — clear flag and dismiss notification
+                self._clear_sensor_notification(self._window_sensor)
+                open1 = state.state in ACTIVE
+
+        if self._window_sensor_2:
+            state = self.hass.states.get(self._window_sensor_2)
+            if state is None or state.state in UNAVAILABLE:
+                self._notify_sensor_offline(self._window_sensor_2)
+            else:
+                self._clear_sensor_notification(self._window_sensor_2)
+                open2 = state.state in ACTIVE
+
+        self._window_open = open1 or open2
+
+    def _clear_sensor_notification(self, sensor_id: str) -> None:
+        """Clear notification flag and dismiss HA notification when sensor comes back."""
+        notif_key = f"notified_{sensor_id}"
+        if not self.hass.data.get(DOMAIN, {}).get(notif_key):
             return
-        state = self.hass.states.get(self._window_sensor)
-        if state:
-            self._window_open = state.state in (STATE_ON, STATE_OPEN, "on", "open")
+        self.hass.data[DOMAIN][notif_key] = False
+        notification_id = f"smart_thermostat_sensor_{sensor_id.replace('.', '_')}"
+        self.hass.async_create_task(
+            self.hass.services.async_call(
+                "persistent_notification", "dismiss", {
+                    "notification_id": notification_id,
+                }
+            )
+        )
+        _LOGGER.info(
+            "%s: Senzorul '%s' a revenit online — notificare ștearsă.",
+            self._attr_name, sensor_id
+        )
+
+    def _notify_sensor_offline(self, sensor_id: str) -> None:
+        """Fire a persistent notification when a window sensor goes offline."""
+        notification_id = f"smart_thermostat_sensor_{sensor_id.replace('.', '_')}"
+        # Only notify once — check if already notified
+        notif_key = f"notified_{sensor_id}"
+        if self.hass.data.get(DOMAIN, {}).get(notif_key):
+            return
+        self.hass.data.setdefault(DOMAIN, {})[notif_key] = True
+        _LOGGER.warning(
+            "%s: Senzorul de geam '%s' este offline (unavailable/unknown) — ignorat.",
+            self._attr_name, sensor_id
+        )
+        self.hass.async_create_task(
+            self.hass.services.async_call(
+                "persistent_notification", "create", {
+                    "title": f"⚠️ {self._attr_name} — Senzor offline",
+                    "message": (
+                        f"Senzorul **{sensor_id}** este offline (unavailable/unknown).\n\n"
+                        f"Termostatul **{self._attr_name}** funcționează normal ignorând acest senzor.\n"
+                        f"Verifică bateriile sau conexiunea senzorului!"
+                    ),
+                    "notification_id": notification_id,
+                }
+            )
+        )
 
     def _update_outdoor_temp(self) -> None:
         if not self._outdoor_sensor:
@@ -330,7 +413,7 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
 
         if mode == HVACMode.HEAT:
             if self._outdoor_temp is not None and self._outdoor_temp > self._outdoor_threshold:
-                _LOGGER.debug("%s: Outdoor temp %.1f > threshold %.1f — heat blocked",
+                _LOGGER.debug("%s: Outdoor %.1f > threshold %.1f — heat blocked",
                     self._attr_name, self._outdoor_temp, self._outdoor_threshold)
                 await self._async_turn_off_switch(self._heat_switch)
                 self.async_write_ha_state()
@@ -344,16 +427,30 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
                 if current <= target - self._hysteresis:
                     await self._async_turn_on_switch(self._heat_switch)
 
-        elif mode == HVACMode.COOL and self._cool_switch:
-            cool_on = self._is_switch_on(self._cool_switch)
-            if cool_on:
+        elif mode == HVACMode.COOL:
+            if self._cool_switch:
+                # Switch-based cool
+                cool_on = self._is_switch_on(self._cool_switch)
+                if cool_on:
+                    if current <= target - self._hysteresis:
+                        await self._async_turn_off_switch(self._cool_switch)
+                else:
+                    if current >= target + self._hysteresis:
+                        await self._async_turn_on_switch(self._cool_switch)
+            elif self._ac_scene_cool_on and self._ac_scene_cool_off:
+                # Scene-based cool
                 if current <= target - self._hysteresis:
-                    await self._async_turn_off_switch(self._cool_switch)
-            else:
-                if current >= target + self._hysteresis:
-                    await self._async_turn_on_switch(self._cool_switch)
+                    _LOGGER.debug("%s: COOL OFF via scene", self._attr_name)
+                    await self._async_activate_scene(self._ac_scene_cool_off)
+                elif current >= target + self._hysteresis:
+                    _LOGGER.debug("%s: COOL ON via scene", self._attr_name)
+                    await self._async_activate_scene(self._ac_scene_cool_on)
 
         self.async_write_ha_state()
+
+    # ------------------------------------------------------------------ #
+    #  Switch & scene helpers
+    # ------------------------------------------------------------------ #
 
     async def _async_turn_on_switch(self, switch_id: str | None) -> None:
         if not switch_id:
@@ -369,57 +466,57 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
             "switch", "turn_off", {"entity_id": switch_id}, blocking=True
         )
 
+    async def _async_activate_scene(self, scene_id: str | None) -> None:
+        if not scene_id:
+            return
+        await self.hass.services.async_call(
+            "scene", "turn_on", {"entity_id": scene_id}, blocking=True
+        )
+
     async def _async_turn_off_all(self) -> None:
         await self._async_turn_off_switch(self._heat_switch)
         if self._cool_switch:
             await self._async_turn_off_switch(self._cool_switch)
+        elif self._ac_scene_cool_off:
+            await self._async_activate_scene(self._ac_scene_cool_off)
 
     # ------------------------------------------------------------------ #
     #  Service handlers
     # ------------------------------------------------------------------ #
 
     async def async_turn_on(self) -> None:
-        """Turn on — default to HEAT mode."""
         if HVACMode.HEAT in self._attr_hvac_modes:
             await self.async_set_hvac_mode(HVACMode.HEAT)
         elif len(self._attr_hvac_modes) > 1:
             await self.async_set_hvac_mode(self._attr_hvac_modes[1])
 
     async def async_turn_off(self) -> None:
-        """Turn off."""
         await self.async_set_hvac_mode(HVACMode.OFF)
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set HVAC mode."""
         if hvac_mode not in self._attr_hvac_modes:
             return
-        if hvac_mode == HVACMode.HEAT and self._cool_switch:
+        if hvac_mode == HVACMode.HEAT:
             await self._async_turn_off_switch(self._cool_switch)
+            if self._ac_scene_cool_off:
+                await self._async_activate_scene(self._ac_scene_cool_off)
         elif hvac_mode == HVACMode.COOL:
             await self._async_turn_off_switch(self._heat_switch)
         self._attr_hvac_mode = hvac_mode
         await self._async_control()
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        """Set target temperature — exits preset mode."""
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is None:
             return
         self._attr_target_temperature = float(temp)
-        # Exiting preset when manually setting temperature
         self._attr_preset_mode = PRESET_NONE
         await self._async_control()
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Set preset mode — applies preset temperature."""
         if preset_mode not in self._attr_preset_modes:
             return
-
         self._attr_preset_mode = preset_mode
-
         if preset_mode != PRESET_NONE and preset_mode in self._presets:
             self._attr_target_temperature = float(self._presets[preset_mode])
-            _LOGGER.debug("%s: Preset '%s' → %.1f°C",
-                self._attr_name, preset_mode, self._attr_target_temperature)
-
         await self._async_control()
