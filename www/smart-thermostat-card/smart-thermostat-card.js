@@ -50,7 +50,7 @@ class SmartThermostatCard extends HTMLElement {
     return Math.round((minTemp + pct * (maxTemp - minTemp)) * 2) / 2;
   }
 
-  _setupDrag(svg, entityId, minTemp, maxTemp, currentTarget) {
+  _setupDrag(svg, entityId, minTemp, maxTemp, currentTarget, tempStep = 0.5) {
     const CX = 100, CY = 100, R = 80;
     const ARC_START = -216, ARC_END = 36;
 
@@ -128,13 +128,16 @@ class SmartThermostatCard extends HTMLElement {
     const presetModes = attrs.preset_modes || ["none"];
     const minTemp     = attrs.min_temp || 5;
     const maxTemp     = attrs.max_temp || 35;
+    const tempStep    = attrs.target_temperature_step || 0.5;
 
     const heatSwitchId = attrs.heat_switch;
     const coolSwitchId = attrs.cool_switch;
     const heatOn = heatSwitchId && this._hass.states[heatSwitchId]?.state === "on";
 
-    const outdoorBlocking = outdoorTemp != null && outdoorTemp > outdoorThr && hvacMode === "heat";
-    const isBlocked = windowOpen || outdoorBlocking;
+    // Each condition is independent — show both simultaneously if both active
+    const outdoorBlocking = outdoorTemp != null && outdoorTemp > outdoorThr;
+    const windowBlocking  = windowOpen;
+    const isBlocked = windowBlocking || (outdoorBlocking && hvacMode === "heat");
     const isOff     = hvacMode === "off" || isBlocked;
     const isHeating = heatOn && hvacMode === "heat" && !isBlocked;
     const isCooling = hvacMode === "cool" && !isBlocked;
@@ -499,7 +502,7 @@ class SmartThermostatCard extends HTMLElement {
           </div>
           <div class="info-chip">
             <div class="info-chip-lbl">Exterior</div>
-            <div class="info-chip-val" style="color:${outdoorBlocking ? '#e67e22' : 'var(--primary-text-color)'}">
+            <div class="info-chip-val" style="color:${outdoorBlocking && hvacMode === 'heat' ? '#e67e22' : 'var(--primary-text-color)'}">
               ${outdoorTemp != null ? outdoorTemp + "°C" : "—"}
             </div>
           </div>
@@ -514,11 +517,11 @@ class SmartThermostatCard extends HTMLElement {
 
     // +/- buttons
     this.shadowRoot.querySelector("#btn-minus")?.addEventListener("click", () => {
-      const n = Math.max((targetTemp || 21) - 0.5, minTemp);
+      const n = Math.round((Math.max((targetTemp || 21) - tempStep, minTemp)) * 100) / 100;
       this._call("climate", "set_temperature", { entity_id: entityId, temperature: n });
     });
     this.shadowRoot.querySelector("#btn-plus")?.addEventListener("click", () => {
-      const n = Math.min((targetTemp || 21) + 0.5, maxTemp);
+      const n = Math.round((Math.min((targetTemp || 21) + tempStep, maxTemp)) * 100) / 100;
       this._call("climate", "set_temperature", { entity_id: entityId, temperature: n });
     });
 
@@ -537,7 +540,7 @@ class SmartThermostatCard extends HTMLElement {
     // Draggable arc thumb
     const svg = this.shadowRoot.querySelector("#dial-svg");
     if (svg) {
-      this._setupDrag(svg, entityId, minTemp, maxTemp, targetTemp);
+      this._setupDrag(svg, entityId, minTemp, maxTemp, targetTemp, tempStep);
     }
   }
 

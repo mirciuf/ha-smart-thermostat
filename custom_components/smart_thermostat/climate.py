@@ -43,6 +43,8 @@ from .const import (
     CONF_MAX_TEMP,
     CONF_PRESETS,
     CONF_AC_SCENE_COOL_ON,
+    CONF_TEMP_STEP,
+    DEFAULT_TEMP_STEP,
     CONF_AC_SCENE_COOL_OFF,
     DEFAULT_TARGET_TEMP,
     DEFAULT_HYSTERESIS,
@@ -96,6 +98,7 @@ async def async_setup_entry(
         presets=presets,
         ac_scene_cool_on=config.get(CONF_AC_SCENE_COOL_ON),
         ac_scene_cool_off=config.get(CONF_AC_SCENE_COOL_OFF),
+        temp_step=float(config.get(CONF_TEMP_STEP, DEFAULT_TEMP_STEP)),
     )
 
     async_add_entities([thermostat], True)
@@ -105,7 +108,6 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
 
     _attr_should_poll = False
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_target_temperature_step = 0.5
 
     def __init__(
         self,
@@ -126,6 +128,7 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         presets: dict[str, float],
         ac_scene_cool_on: str | None,
         ac_scene_cool_off: str | None,
+        temp_step: float = 0.5,
     ) -> None:
         self.hass = hass
         self._entry_id = entry_id
@@ -152,6 +155,7 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         self._attr_max_temp = max_temp
         self._ac_scene_cool_on = ac_scene_cool_on
         self._ac_scene_cool_off = ac_scene_cool_off
+        self._attr_target_temperature_step = temp_step
 
         # Determine if cool mode is available
         # Cool is available if we have a switch OR both scenes
@@ -440,8 +444,8 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
             elif self._ac_scene_cool_on and self._ac_scene_cool_off:
                 # Scene-based cool
                 if current <= target - self._hysteresis:
-                    _LOGGER.debug("%s: COOL OFF via scene", self._attr_name)
-                    await self._async_activate_scene(self._ac_scene_cool_off)
+                    _LOGGER.debug("%s: COOL OFF via scene (checking shared AC)", self._attr_name)
+                    await self._async_turn_off_cool_scene_if_safe()
                 elif current >= target + self._hysteresis:
                     _LOGGER.debug("%s: COOL ON via scene", self._attr_name)
                     await self._async_activate_scene(self._ac_scene_cool_on)
@@ -478,7 +482,38 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         if self._cool_switch:
             await self._async_turn_off_switch(self._cool_switch)
         elif self._ac_scene_cool_off:
-            await self._async_activate_scene(self._ac_scene_cool_off)
+            await self._async_turn_off_cool_scene_if_safe()
+
+    async def _async_turn_off_cool_scene_if_safe(self) -> None:
+        """Execute ac_scene_cool_off ONLY if no other thermostat
+        with the same ac_scene_cool_on is still requesting cooling.
+        """
+        if not self._ac_scene_cool_off:
+            return
+
+        # Find all other SmartThermostat entities sharing the same cool scene
+        for entry_id, data in self.hass.data.get(DOMAIN, {}).items():
+            if entry_id == self._entry_id:
+                continue
+            if not isinstance(data, dict):
+                continue
+            # Check if another thermostat shares the same ac_scene_cool_on
+            other_scene = data.get("ac_scene_cool_on")
+            if other_scene != self._ac_scene_cool_on:
+                continue
+            # Check if that thermostat is actively cooling
+            other_entity_id = f"climate.{data.get('thermostat_name', '').lower().replace(' ', '_').replace('-', '_')}"
+            other_state = self.hass.states.get(other_entity_id)
+            if other_state and other_state.state == "cool":
+                _LOGGER.debug(
+                    "%s: AC scene OFF skipped — '%s' is still cooling",
+                    self._attr_name, other_entity_id
+                )
+                return  # Another thermostat still needs AC — don't turn off
+
+        # Safe to turn off
+        _LOGGER.debug("%s: AC scene OFF — no other thermostat needs cooling", self._attr_name)
+        await self._async_activate_scene(self._ac_scene_cool_off)
 
     # ------------------------------------------------------------------ #
     #  Service handlers
@@ -499,7 +534,7 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         if hvac_mode == HVACMode.HEAT:
             await self._async_turn_off_switch(self._cool_switch)
             if self._ac_scene_cool_off:
-                await self._async_activate_scene(self._ac_scene_cool_off)
+                await self._async_turn_off_cool_scene_if_safe()
         elif hvac_mode == HVACMode.COOL:
             await self._async_turn_off_switch(self._heat_switch)
         self._attr_hvac_mode = hvac_mode
