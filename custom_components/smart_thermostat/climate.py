@@ -24,6 +24,8 @@ from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.event import async_call_later
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
@@ -62,6 +64,21 @@ from .const import (
     ATTR_AC_SCENE_COOL_ON,
     ATTR_AC_SCENE_COOL_OFF,
     PRESET_NONE,
+    CONF_COOL_TYPE,
+    COOL_TYPE_NONE,
+    COOL_TYPE_SWITCH,
+    COOL_TYPE_SCENE,
+    COOL_TYPE_CLIMATE,
+    CONF_AC_CLIMATE_ENTITY,
+    CONF_AC_CLIMATE_COOL_TEMP,
+    CONF_AC_CLIMATE_MIN_RUNTIME,
+    DEFAULT_AC_CLIMATE_COOL_TEMP,
+    DEFAULT_AC_CLIMATE_MIN_RUNTIME,
+    ATTR_COOL_TYPE,
+    ATTR_AC_CLIMATE_ENTITY,
+    ATTR_AC_CLIMATE_COOL_TEMP,
+    ATTR_AC_CLIMATE_MIN_RUNTIME,
+    resolve_cool_type,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -80,12 +97,15 @@ async def async_setup_entry(
     except (json.JSONDecodeError, TypeError):
         presets = {}
 
+    cool_type = resolve_cool_type(config)
+
     thermostat = SmartThermostat(
         hass=hass,
         entry_id=entry.entry_id,
         name=config.get(CONF_THERMOSTAT_NAME, "Smart Thermostat"),
         temp_sensor=config[CONF_TEMP_SENSOR],
         heat_switch=config[CONF_HEAT_SWITCH],
+        cool_type=cool_type,
         cool_switch=config.get(CONF_COOL_SWITCH),
         window_sensor=config.get(CONF_WINDOW_SENSOR),
         window_sensor_2=config.get(CONF_WINDOW_SENSOR_2),
@@ -98,6 +118,9 @@ async def async_setup_entry(
         presets=presets,
         ac_scene_cool_on=config.get(CONF_AC_SCENE_COOL_ON),
         ac_scene_cool_off=config.get(CONF_AC_SCENE_COOL_OFF),
+        ac_climate_entity=config.get(CONF_AC_CLIMATE_ENTITY),
+        ac_climate_cool_temp=float(config.get(CONF_AC_CLIMATE_COOL_TEMP, DEFAULT_AC_CLIMATE_COOL_TEMP)),
+        ac_climate_min_runtime=int(config.get(CONF_AC_CLIMATE_MIN_RUNTIME, DEFAULT_AC_CLIMATE_MIN_RUNTIME)),
         temp_step=float(config.get(CONF_TEMP_STEP, DEFAULT_TEMP_STEP)),
     )
 
@@ -116,6 +139,7 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         name: str,
         temp_sensor: str,
         heat_switch: str,
+        cool_type: str,
         cool_switch: str | None,
         window_sensor: str | None,
         window_sensor_2: str | None,
@@ -128,6 +152,9 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         presets: dict[str, float],
         ac_scene_cool_on: str | None,
         ac_scene_cool_off: str | None,
+        ac_climate_entity: str | None,
+        ac_climate_cool_temp: float,
+        ac_climate_min_runtime: int,
         temp_step: float = 0.5,
     ) -> None:
         self.hass = hass
@@ -145,6 +172,7 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         # Config
         self._temp_sensor = temp_sensor
         self._heat_switch = heat_switch
+        self._cool_type = cool_type
         self._cool_switch = cool_switch
         self._window_sensor = window_sensor
         self._window_sensor_2 = window_sensor_2
@@ -155,12 +183,16 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         self._attr_max_temp = max_temp
         self._ac_scene_cool_on = ac_scene_cool_on
         self._ac_scene_cool_off = ac_scene_cool_off
+        self._ac_climate_entity = ac_climate_entity
+        self._ac_climate_cool_temp = ac_climate_cool_temp
+        self._ac_climate_min_runtime = ac_climate_min_runtime
         self._attr_target_temperature_step = temp_step
 
-        # Determine if cool mode is available
-        # Cool is available if we have a switch OR both scenes
+        # Determine if cool mode is available, based on the selected cool_type
         self._has_cool = bool(
-            cool_switch or (ac_scene_cool_on and ac_scene_cool_off)
+            (cool_type == COOL_TYPE_SWITCH and cool_switch)
+            or (cool_type == COOL_TYPE_SCENE and ac_scene_cool_on and ac_scene_cool_off)
+            or (cool_type == COOL_TYPE_CLIMATE and ac_climate_entity)
         )
 
         # Presets
@@ -203,10 +235,10 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
             return HVACAction.IDLE
         if self._is_switch_on(self._heat_switch):
             return HVACAction.HEATING
-        if self._cool_switch and self._is_switch_on(self._cool_switch):
+        if self._cool_type == COOL_TYPE_SWITCH and self._is_switch_on(self._cool_switch):
             return HVACAction.COOLING
-        # For scene-based cool — check if cool mode is active
-        if self._ac_scene_cool_on and self._attr_hvac_mode == HVACMode.COOL:
+        # For scene- or climate-based cool — check if cool mode is active
+        if self._cool_type in (COOL_TYPE_SCENE, COOL_TYPE_CLIMATE) and self._attr_hvac_mode == HVACMode.COOL:
             return HVACAction.COOLING
         return HVACAction.IDLE
 
@@ -219,9 +251,13 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
             ATTR_OUTDOOR_TEMP: self._outdoor_temp,
             ATTR_TEMP_SENSOR: self._temp_sensor,
             ATTR_HEAT_SWITCH: self._heat_switch,
+            ATTR_COOL_TYPE: self._cool_type,
             ATTR_COOL_SWITCH: self._cool_switch,
             ATTR_AC_SCENE_COOL_ON: self._ac_scene_cool_on,
             ATTR_AC_SCENE_COOL_OFF: self._ac_scene_cool_off,
+            ATTR_AC_CLIMATE_ENTITY: self._ac_climate_entity,
+            ATTR_AC_CLIMATE_COOL_TEMP: self._ac_climate_cool_temp,
+            ATTR_AC_CLIMATE_MIN_RUNTIME: self._ac_climate_min_runtime,
             ATTR_PRESETS: self._presets,
         }
 
@@ -255,11 +291,21 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         self._update_window_state()
         self._update_outdoor_temp()
 
+        # Register this instance so other thermostats sharing the same
+        # AC climate entity can check whether it's still needed before
+        # turning it off (see _other_thermostat_needs_climate_cool).
+        self.hass.data.setdefault(DOMAIN, {}).setdefault("entities", {})[self._entry_id] = self
+
         self.async_on_remove(
             self.hass.bus.async_listen("state_changed", self._handle_state_change)
         )
 
         await self._async_control()
+
+    async def async_will_remove_from_hass(self) -> None:
+        entities = self.hass.data.get(DOMAIN, {}).get("entities", {})
+        entities.pop(self._entry_id, None)
+        await super().async_will_remove_from_hass()
 
     # ------------------------------------------------------------------ #
     #  State change handler
@@ -283,6 +329,8 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
             self._update_outdoor_temp()
             changed = True
         if entity_id in (self._heat_switch, self._cool_switch):
+            changed = True
+        if self._ac_climate_entity and entity_id == self._ac_climate_entity:
             changed = True
 
         if changed:
@@ -432,7 +480,7 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
                     await self._async_turn_on_switch(self._heat_switch)
 
         elif mode == HVACMode.COOL:
-            if self._cool_switch:
+            if self._cool_type == COOL_TYPE_SWITCH and self._cool_switch:
                 # Switch-based cool
                 cool_on = self._is_switch_on(self._cool_switch)
                 if cool_on:
@@ -441,7 +489,7 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
                 else:
                     if current >= target + self._hysteresis:
                         await self._async_turn_on_switch(self._cool_switch)
-            elif self._ac_scene_cool_on and self._ac_scene_cool_off:
+            elif self._cool_type == COOL_TYPE_SCENE and self._ac_scene_cool_on and self._ac_scene_cool_off:
                 # Scene-based cool
                 if current <= target - self._hysteresis:
                     _LOGGER.debug("%s: COOL OFF via scene (checking shared AC)", self._attr_name)
@@ -449,6 +497,14 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
                 elif current >= target + self._hysteresis:
                     _LOGGER.debug("%s: COOL ON via scene", self._attr_name)
                     await self._async_activate_scene(self._ac_scene_cool_on)
+            elif self._cool_type == COOL_TYPE_CLIMATE and self._ac_climate_entity:
+                # Climate-entity-based cool (e.g. Tuya Smart IR AC)
+                if current <= target - self._hysteresis:
+                    _LOGGER.debug("%s: COOL OFF via climate entity (checking shared AC + min runtime)", self._attr_name)
+                    await self._async_turn_off_climate_if_safe()
+                elif current >= target + self._hysteresis:
+                    _LOGGER.debug("%s: COOL ON via climate entity", self._attr_name)
+                    await self._async_set_climate_cool()
 
         self.async_write_ha_state()
 
@@ -479,10 +535,12 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
 
     async def _async_turn_off_all(self) -> None:
         await self._async_turn_off_switch(self._heat_switch)
-        if self._cool_switch:
+        if self._cool_type == COOL_TYPE_SWITCH:
             await self._async_turn_off_switch(self._cool_switch)
-        elif self._ac_scene_cool_off:
+        elif self._cool_type == COOL_TYPE_SCENE:
             await self._async_turn_off_cool_scene_if_safe()
+        elif self._cool_type == COOL_TYPE_CLIMATE:
+            await self._async_turn_off_climate_if_safe()
 
     async def _async_turn_off_cool_scene_if_safe(self) -> None:
         """Execute ac_scene_cool_off ONLY if no other thermostat
@@ -516,6 +574,132 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         await self._async_activate_scene(self._ac_scene_cool_off)
 
     # ------------------------------------------------------------------ #
+    #  AC climate entity helpers (cool_type == "climate")
+    # ------------------------------------------------------------------ #
+
+    def _other_thermostat_needs_climate_cool(self, entity_id: str) -> bool:
+        """True if another SmartThermostat instance is sharing the same AC
+        climate entity and is still actively requesting COOL from it."""
+        entities = self.hass.data.get(DOMAIN, {}).get("entities", {})
+        for entry_id, other in entities.items():
+            if entry_id == self._entry_id:
+                continue
+            if getattr(other, "_cool_type", None) != COOL_TYPE_CLIMATE:
+                continue
+            if getattr(other, "_ac_climate_entity", None) != entity_id:
+                continue
+            if other._attr_hvac_mode == HVACMode.COOL and not other._window_open:
+                return True
+        return False
+
+    def _climate_runtime_remaining(self, entity_id: str) -> float:
+        """Seconds remaining before the AC may be safely turned off, based on
+        how long it has been running (min_runtime protection for the compressor).
+        Uses the climate entity's own last_changed timestamp — it changes
+        precisely when the AC's hvac_mode last switched, so it doubles as a
+        reliable 'running since' marker without needing extra bookkeeping.
+        """
+        if self._ac_climate_min_runtime <= 0:
+            return 0
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state != HVACMode.COOL:
+            return 0  # Already off (or unknown) — nothing to protect
+        elapsed = (dt_util.utcnow() - state.last_changed).total_seconds()
+        remaining = (self._ac_climate_min_runtime * 60) - elapsed
+        return max(0.0, remaining)
+
+    def _cancel_pending_climate_off(self, entity_id: str) -> None:
+        pending = self.hass.data.get(DOMAIN, {}).get("ac_climate_pending_off", {})
+        cancel = pending.pop(entity_id, None)
+        if cancel:
+            cancel()
+
+    def _schedule_climate_off(self, entity_id: str, delay_seconds: float) -> None:
+        pending = self.hass.data.setdefault(DOMAIN, {}).setdefault("ac_climate_pending_off", {})
+        if entity_id in pending:
+            return  # A timer is already scheduled for this AC entity
+
+        @callback
+        def _fire(_now) -> None:
+            pending.pop(entity_id, None)
+            self.hass.async_create_task(self._async_recheck_and_turn_off_climate(entity_id))
+
+        pending[entity_id] = async_call_later(self.hass, delay_seconds, _fire)
+
+    async def _async_recheck_and_turn_off_climate(self, entity_id: str) -> None:
+        """Called when a delayed OFF timer fires — re-checks conditions are
+        still valid (another thermostat may now need cooling) before acting."""
+        if self._other_thermostat_needs_climate_cool(entity_id):
+            _LOGGER.debug(
+                "%s: AC climate delayed OFF skipped — another thermostat now needs cooling",
+                self._attr_name,
+            )
+            return
+        remaining = self._climate_runtime_remaining(entity_id)
+        if remaining > 0:
+            self._schedule_climate_off(entity_id, remaining)
+            return
+        await self._async_execute_climate_off(entity_id)
+
+    async def _async_execute_climate_off(self, entity_id: str) -> None:
+        _LOGGER.debug("%s: AC climate OFF — %s", self._attr_name, entity_id)
+        await self.hass.services.async_call(
+            "climate", "set_hvac_mode",
+            {"entity_id": entity_id, "hvac_mode": HVACMode.OFF},
+            blocking=True,
+        )
+
+    async def _async_turn_off_climate_if_safe(self) -> None:
+        """Turn the AC climate entity OFF, unless:
+        - another thermostat sharing it still needs cooling, or
+        - it hasn't been running for the configured minimum runtime yet
+          (in which case OFF is scheduled for when that time is up).
+        """
+        entity_id = self._ac_climate_entity
+        if not entity_id:
+            return
+
+        if self._other_thermostat_needs_climate_cool(entity_id):
+            _LOGGER.debug(
+                "%s: AC climate OFF skipped — another thermostat is still cooling",
+                self._attr_name,
+            )
+            return
+
+        remaining = self._climate_runtime_remaining(entity_id)
+        if remaining <= 0:
+            self._cancel_pending_climate_off(entity_id)
+            await self._async_execute_climate_off(entity_id)
+        else:
+            _LOGGER.debug(
+                "%s: AC climate min runtime protection — delaying OFF by %.0fs",
+                self._attr_name, remaining,
+            )
+            self._schedule_climate_off(entity_id, remaining)
+
+    async def _async_set_climate_cool(self) -> None:
+        """Turn the AC climate entity ON for cooling at the configured fixed temperature."""
+        entity_id = self._ac_climate_entity
+        if not entity_id:
+            return
+
+        # We need it on now — cancel any pending delayed OFF for this AC
+        self._cancel_pending_climate_off(entity_id)
+
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state != HVACMode.COOL:
+            await self.hass.services.async_call(
+                "climate", "set_hvac_mode",
+                {"entity_id": entity_id, "hvac_mode": HVACMode.COOL},
+                blocking=True,
+            )
+        await self.hass.services.async_call(
+            "climate", "set_temperature",
+            {"entity_id": entity_id, "temperature": self._ac_climate_cool_temp},
+            blocking=True,
+        )
+
+    # ------------------------------------------------------------------ #
     #  Service handlers
     # ------------------------------------------------------------------ #
 
@@ -532,9 +716,12 @@ class SmartThermostat(RestoreEntity, ClimateEntity):
         if hvac_mode not in self._attr_hvac_modes:
             return
         if hvac_mode == HVACMode.HEAT:
-            await self._async_turn_off_switch(self._cool_switch)
-            if self._ac_scene_cool_off:
+            if self._cool_type == COOL_TYPE_SWITCH:
+                await self._async_turn_off_switch(self._cool_switch)
+            elif self._cool_type == COOL_TYPE_SCENE:
                 await self._async_turn_off_cool_scene_if_safe()
+            elif self._cool_type == COOL_TYPE_CLIMATE:
+                await self._async_turn_off_climate_if_safe()
         elif hvac_mode == HVACMode.COOL:
             await self._async_turn_off_switch(self._heat_switch)
         self._attr_hvac_mode = hvac_mode

@@ -1,7 +1,7 @@
 {
   "domain": "smart_thermostat",
   "name": "Smart Thermostat",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "documentation": "https://github.com/mirciuf/ha-smart-thermostat",
   "issue_tracker": "https://github.com/mirciuf/ha-smart-thermostat/issues",
   "dependencies": [],

@@ -8,7 +8,13 @@
           "thermostat_name": "Numele termostatului",
           "temp_sensor": "Senzor temperatură interior",
           "heat_switch": "Switch radiator (încălzire)",
-          "cool_switch": "Switch AC (răcire) — opțional",
+          "cool_type": "Tip răcire",
+          "cool_switch": "Switch AC — folosit dacă tipul de răcire e Switch",
+          "ac_scene_cool_on": "Scenă pornire AC — folosită dacă tipul de răcire e Scenă",
+          "ac_scene_cool_off": "Scenă oprire AC — folosită dacă tipul de răcire e Scenă",
+          "ac_climate_entity": "Climate entity AC — folosit dacă tipul de răcire e Climate Entity",
+          "ac_climate_cool_temp": "Temperatură fixă AC la pornire (°C)",
+          "ac_climate_min_runtime": "Funcționare minimă AC înainte de oprire (minute)",
           "window_sensor": "Senzor geam/ușă — opțional",
           "outdoor_sensor": "Senzor temperatură exterior — opțional",
           "target_temp": "Temperatura țintă (°C)",
@@ -21,7 +27,10 @@
           "thermostat_name": "Ex: Termostat Living, Termostat Dormitor",
           "temp_sensor": "Senzorul care măsoară temperatura în cameră",
           "heat_switch": "Switch-ul care controlează robinetul caloriferului",
-          "cool_switch": "Switch-ul care controlează AC-ul (lasă gol dacă nu ai AC)",
+          "cool_type": "Cum controlezi AC-ul pentru răcire — switch simplu, scene de pornire/oprire (ex: Tuya IR) sau o entitate climate (AC nativ sau Tuya IR configurat ca climate)",
+          "cool_switch": "Switch-ul care controlează AC-ul (relevant doar dacă tipul de răcire e Switch)",
+          "ac_climate_cool_temp": "Temperatura fixă setată pe AC de fiecare dată când termostatul pornește răcirea",
+          "ac_climate_min_runtime": "AC-ul nu se oprește mai repede de atât după ce a pornit, ca să-i protejezi compresorul (0 = fără protecție)",
           "window_sensor": "Când geamul e deschis, termostatul se oprește automat",
           "outdoor_sensor": "Când afară e mai cald decât pragul, încălzirea se oprește",
           "hysteresis": "Banda de toleranță în jurul temperaturii țintă (ex: 0.5 = ±0.5°C)",
@@ -36,7 +45,8 @@
     "error": {
       "name_required": "Numele termostatului este obligatoriu.",
       "entity_required": "Trebuie să selectați o entitate.",
-      "invalid_range": "Temperatura minimă trebuie să fie mai mică decât temperatura maximă."
+      "invalid_range": "Temperatura minimă trebuie să fie mai mică decât temperatura maximă.",
+      "cool_field_required": "Completați câmpurile necesare pentru tipul de răcire selectat."
     }
   },
   "options": {
@@ -52,7 +62,13 @@
         "data": {
           "temp_sensor": "Senzor temperatură interior",
           "heat_switch": "Switch radiator (încălzire)",
-          "cool_switch": "Switch AC (răcire) — opțional",
+          "cool_type": "Tip răcire",
+          "cool_switch": "Switch AC — folosit dacă tipul de răcire e Switch",
+          "ac_scene_cool_on": "Scenă pornire AC — folosită dacă tipul de răcire e Scenă",
+          "ac_scene_cool_off": "Scenă oprire AC — folosită dacă tipul de răcire e Scenă",
+          "ac_climate_entity": "Climate entity AC — folosit dacă tipul de răcire e Climate Entity",
+          "ac_climate_cool_temp": "Temperatură fixă AC la pornire (°C)",
+          "ac_climate_min_runtime": "Funcționare minimă AC înainte de oprire (minute)",
           "window_sensor": "Senzor geam/ușă — opțional",
           "outdoor_sensor": "Senzor temperatură exterior — opțional"
         }
@@ -70,7 +86,8 @@
     },
     "error": {
       "entity_required": "Trebuie să selectați o entitate.",
-      "invalid_range": "Temperatura minimă trebuie să fie mai mică decât temperatura maximă."
+      "invalid_range": "Temperatura minimă trebuie să fie mai mică decât temperatura maximă.",
+      "cool_field_required": "Completați câmpurile necesare pentru tipul de răcire selectat."
     }
   }
 }
