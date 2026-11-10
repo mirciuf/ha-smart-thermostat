@@ -2,7 +2,7 @@
 
 DOMAIN = "toptech_smart_thermostat"
 NAME = "Smart Thermostat"
-VERSION = "1.2.0"
+VERSION = "1.7.0"
 
 # Config keys
 CONF_THERMOSTAT_NAME = "thermostat_name"
