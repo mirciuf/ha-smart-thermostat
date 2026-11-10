@@ -61,9 +61,9 @@ HACS acceptă o singură categorie pe repository, iar acesta este înregistrat c
 
 ---
 
-## ⚠️ Actualizare de la versiunea 1.1.0 sau mai veche
+## ⚠️ Actualizare de la versiunea 1.6.0 sau mai veche
 
-Începând cu **v1.2.0**, integrarea s-a mutat din `smart_thermostat` în `toptech_smart_thermostat`. Home Assistant leagă fiecare integrare de numele folderului, așa că vechea configurație nu se mută automat. Pași:
+Începând cu **v1.7.0**, integrarea s-a mutat din `smart_thermostat` în `toptech_smart_thermostat`. Home Assistant leagă fiecare integrare de numele folderului, așa că vechea configurație nu se mută automat. Pași:
 
 1. Notați setările fiecărui termostat (senzori, switch-uri, preseturi).
 2. **Setări → Dispozitive & Servicii → Smart Thermostat → ⋮ → Șterge** (pentru fiecare termostat).
@@ -263,8 +263,8 @@ ha-smart-thermostat/
 
 ## 📝 Istoric versiuni
 
-- **1.2.0** — folderul integrării a fost redenumit în `toptech_smart_thermostat`; `en.json` tradus în engleză; texte lipsă adăugate în traduceri; README actualizat
-- **1.1.0** — răcire prin climate entity cu protecție de funcționare minimă; pas de temperatură configurabil; logică AC partajată
+- **1.7.0** — folderul integrării a fost redenumit în `toptech_smart_thermostat`; `en.json` tradus în engleză; texte lipsă adăugate în traduceri; README actualizat
+- **1.6.0** — răcire prin climate entity cu protecție de funcționare minimă; pas de temperatură configurabil; logică AC partajată
 - **1.0.0** — lansare inițială
 
 ---
