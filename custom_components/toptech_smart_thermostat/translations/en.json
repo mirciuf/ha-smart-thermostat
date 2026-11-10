@@ -1,0 +1,120 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Smart Thermostat setup",
+        "description": "Set up a smart thermostat with independent control for heating and cooling.",
+        "data": {
+          "thermostat_name": "Thermostat name",
+          "temp_sensor": "Indoor temperature sensor",
+          "heat_switch": "Radiator switch (heating)",
+          "cool_type": "Cooling type",
+          "cool_switch": "AC switch — used if cooling type is Switch",
+          "ac_scene_cool_on": "AC turn-on scene — used if cooling type is Scene",
+          "ac_scene_cool_off": "AC turn-off scene — used if cooling type is Scene",
+          "ac_climate_entity": "AC climate entity — used if cooling type is Climate Entity",
+          "ac_climate_cool_temp": "Fixed AC temperature on start (°C)",
+          "ac_climate_min_runtime": "AC minimum runtime before turning off (minutes)",
+          "window_sensor": "Window/door sensor 1 — optional",
+          "window_sensor_2": "Window/door sensor 2 — optional",
+          "outdoor_sensor": "Outdoor temperature sensor — optional",
+          "target_temp": "Target temperature (°C)",
+          "hysteresis": "Hysteresis (°C)",
+          "outdoor_temp_threshold": "Outdoor temperature threshold to stop heating (°C)",
+          "min_temp": "Minimum settable temperature (°C)",
+          "max_temp": "Maximum settable temperature (°C)",
+          "temp_step": "Temperature step (°C)"
+        },
+        "data_description": {
+          "thermostat_name": "E.g. Living Room Thermostat, Bedroom Thermostat",
+          "temp_sensor": "The sensor that measures the room temperature",
+          "heat_switch": "The switch that controls the radiator valve",
+          "cool_type": "How you control the AC for cooling — a simple switch, on/off scenes (e.g. Tuya IR) or a climate entity (native AC or Tuya IR set up as climate)",
+          "cool_switch": "The switch that controls the AC (only relevant if cooling type is Switch)",
+          "ac_climate_cool_temp": "The fixed temperature set on the AC every time the thermostat starts cooling",
+          "ac_climate_min_runtime": "The AC will not be turned off sooner than this after it started, to protect its compressor (0 = no protection)",
+          "window_sensor": "When the window is open, the thermostat stops automatically",
+          "outdoor_sensor": "When it is warmer outside than the threshold, heating stops",
+          "hysteresis": "Tolerance band around the target temperature (e.g. 0.5 = ±0.5°C)",
+          "outdoor_temp_threshold": "Outdoor temperature above which heating is stopped",
+          "temp_step": "Step used by the +/− buttons and by dragging on the dial"
+        }
+      }
+    },
+    "abort": {
+      "no_temp_sensors": "No temperature sensors were found in Home Assistant.",
+      "no_switches": "No switches were found in Home Assistant."
+    },
+    "error": {
+      "name_required": "The thermostat name is required.",
+      "entity_required": "You must select an entity.",
+      "invalid_range": "The minimum temperature must be lower than the maximum temperature.",
+      "cool_field_required": "Fill in the fields required for the selected cooling type."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Manage thermostat",
+        "data": {
+          "action": "Action"
+        }
+      },
+      "edit_config": {
+        "title": "Edit sensors and switches",
+        "data": {
+          "temp_sensor": "Indoor temperature sensor",
+          "heat_switch": "Radiator switch (heating)",
+          "cool_type": "Cooling type",
+          "cool_switch": "AC switch — used if cooling type is Switch",
+          "ac_scene_cool_on": "AC turn-on scene — used if cooling type is Scene",
+          "ac_scene_cool_off": "AC turn-off scene — used if cooling type is Scene",
+          "ac_climate_entity": "AC climate entity — used if cooling type is Climate Entity",
+          "ac_climate_cool_temp": "Fixed AC temperature on start (°C)",
+          "ac_climate_min_runtime": "AC minimum runtime before turning off (minutes)",
+          "window_sensor": "Window/door sensor 1 — optional",
+          "window_sensor_2": "Window/door sensor 2 — optional",
+          "outdoor_sensor": "Outdoor temperature sensor — optional"
+        }
+      },
+      "edit_params": {
+        "title": "Edit parameters",
+        "data": {
+          "target_temp": "Target temperature (°C)",
+          "hysteresis": "Hysteresis (°C)",
+          "outdoor_temp_threshold": "Outdoor temperature threshold (°C)",
+          "min_temp": "Minimum settable temperature (°C)",
+          "max_temp": "Maximum settable temperature (°C)",
+          "temp_step": "Temperature step (°C)"
+        }
+      },
+      "manage_presets": {
+        "title": "Manage presets",
+        "description": "Current presets:\n{preset_list}",
+        "data": {
+          "preset_action": "Action"
+        }
+      },
+      "add_preset": {
+        "title": "Add preset",
+        "data": {
+          "preset_name": "Preset name",
+          "preset_temp": "Temperature (°C)"
+        }
+      },
+      "delete_preset": {
+        "title": "Delete preset",
+        "data": {
+          "preset_to_delete": "Preset to delete"
+        }
+      }
+    },
+    "error": {
+      "name_required": "The preset name is required.",
+      "invalid_value": "Invalid value.",
+      "entity_required": "You must select an entity.",
+      "invalid_range": "The minimum temperature must be lower than the maximum temperature.",
+      "cool_field_required": "Fill in the fields required for the selected cooling type."
+    }
+  }
+}

@@ -7,45 +7,69 @@ Un termostat inteligent complet pentru Home Assistant, cu control independent pe
 ## ✅ Funcționalități
 
 - **Control încălzire** — switch robinet calorifer
-- **Control răcire** — switch AC sau scenă HA (scene.ac_cool / scene.ac_off)
+- **Control răcire, în 3 variante** — switch AC, scene HA (pornire/oprire) sau o entitate `climate` (AC nativ sau IR)
+- **Protecție compresor AC** — timp minim de funcționare înainte de oprire (varianta Climate Entity)
+- **AC partajat între termostate** — AC-ul nu se oprește cât timp un alt termostat încă are nevoie de răcire
 - **Histereza configurabilă** — bandă de toleranță ±X°C în jurul temperaturii țintă
+- **Pas de temperatură configurabil** — 0.1 / 0.2 / 0.5 / 1.0°C
 - **Senzor temperatură exterioară** — oprește automat încălzirea când afară e mai cald decât pragul setat
 - **2 senzori geam/ușă** — oricare deschis oprește termostatul
-- **Senzori indisponibili** — ignorați automat cu notificare HA (nu opresc termostatul)
+- **Senzori indisponibili** — ignorați automat, cu notificare în HA (nu opresc termostatul)
 - **Preseturi configurabile** — Acasă, Plecat, Noapte etc. cu temperaturi personalizate
 - **Card Lovelace custom** — cadran circular, responsive, compatibil cu orice temă HA
 - **Thumb draggabil** — modifici temperatura direct pe cadran
 - **Persistarea stării** — modul și temperatura țintă supraviețuiesc la restart HA
-- **Device info** — apare ca device în HA (compatibil cu automatizări prin device_id)
+- **Device info** — apare ca device în HA (compatibil cu automatizări prin `device_id`)
+- **Interfață bilingvă** — engleză și română
 
 ---
 
 ## 📦 Instalare
 
-### Metoda 1: HACS (recomandat)
+Integrarea se instalează în folderul:
 
-**Integrare:**
-1. HACS → Integrări → ⋮ → Custom repositories
+```
+/config/custom_components/toptech_smart_thermostat/
+```
+
+> Pe Home Assistant OS / Supervised, `/config` este același lucru cu `/homeassistant`.
+
+### Integrarea — metoda 1: HACS (recomandat)
+
+1. HACS → Integrări → ⋮ → **Custom repositories**
 2. URL: `https://github.com/mirciuf/ha-smart-thermostat`
 3. Categorie: **Integration** → Add
 4. Caută **Smart Thermostat** → Download
 5. Restart Home Assistant
 
-**Card Lovelace:**
-1. HACS → Frontend → ⋮ → Custom repositories
-2. URL: `https://github.com/mirciuf/ha-smart-thermostat`
-3. Categorie: **Dashboard** → Add
-4. Caută **Smart Thermostat Card** → Download
-5. Hard refresh browser (`Ctrl+Shift+R`)
+HACS creează singur folderul `toptech_smart_thermostat`.
 
-### Metoda 2: Manual
+### Integrarea — metoda 2: manual
 
-1. Copiați folderul `custom_components/smart_thermostat/` în `/config/custom_components/`
-2. Copiați folderul `www/smart-thermostat-card/` în `/config/www/`
-3. Restart Home Assistant
-4. Mergeți la **Setări → Dashboard → Resurse → +** și adăugați:
+1. Copiați folderul `custom_components/toptech_smart_thermostat/` în `/config/custom_components/`
+2. Restart Home Assistant
+
+### Cardul Lovelace (instalare manuală)
+
+HACS acceptă o singură categorie pe repository, iar acesta este înregistrat ca **Integration**. Din acest motiv cardul se instalează manual:
+
+1. Copiați folderul `www/smart-thermostat-card/` în `/config/www/`
+2. Mergeți la **Setări → Dashboard → ⋮ → Resurse → + Adaugă resursă**:
    - URL: `/local/smart-thermostat-card/smart-thermostat-card.js`
-   - Tip: `JavaScript Module`
+   - Tip: **JavaScript Module**
+3. Hard refresh în browser (`Ctrl+Shift+R`)
+
+---
+
+## ⚠️ Actualizare de la versiunea 1.1.0 sau mai veche
+
+Începând cu **v1.2.0**, integrarea s-a mutat din `smart_thermostat` în `toptech_smart_thermostat`. Home Assistant leagă fiecare integrare de numele folderului, așa că vechea configurație nu se mută automat. Pași:
+
+1. Notați setările fiecărui termostat (senzori, switch-uri, preseturi).
+2. **Setări → Dispozitive & Servicii → Smart Thermostat → ⋮ → Șterge** (pentru fiecare termostat).
+3. Ștergeți vechiul folder `/config/custom_components/smart_thermostat/`.
+4. Instalați noua versiune (vezi mai sus) și restartați Home Assistant.
+5. Adăugați din nou termostatele, cu **exact aceleași nume** ca înainte, ca să păstrați `entity_id`-urile (`climate.termostat_living` etc.). Cardurile și automatizările continuă atunci să funcționeze.
 
 ---
 
@@ -60,19 +84,21 @@ Un termostat inteligent complet pentru Home Assistant, cu control independent pe
 | **Numele termostatului** | Nume descriptiv | `Termostat Living` |
 | **Senzor temperatură interior** | Senzorul din cameră | `sensor.living_temperature` |
 | **Switch radiator** | Controlează robinetul caloriferului | `switch.robinet_living` |
-| **Switch AC** | Controlează AC-ul (opțional) | `switch.ac_living` |
-| **Scenă AC pornire răcire** | Alternativă la switch AC | `scene.ac_cool` |
-| **Scenă AC oprire răcire** | Alternativă la switch AC | `scene.ac_off` |
-| **Senzor geam 1** | Oprește termostatul când e deschis | `binary_sensor.geam_living` |
-| **Senzor geam 2** | Al doilea senzor (opțional) | `binary_sensor.usa_balcon` |
-| **Senzor temperatură exterior** | Oprește încălzirea la temperaturi mari | `sensor.outdoor_temperature` |
+| **Tip răcire** | Fără răcire / Switch / Scenă / Climate Entity | `Climate Entity` |
+| **Switch AC** | Doar pentru tipul *Switch* | `switch.ac_living` |
+| **Scenă pornire / oprire AC** | Doar pentru tipul *Scenă* | `scene.ac_cool` / `scene.ac_off` |
+| **Climate entity AC** | Doar pentru tipul *Climate Entity* | `climate.ac_living` |
+| **Temperatură fixă AC la pornire** | Temperatura setată pe AC când începe răcirea (16–30°C) | `18.0` |
+| **Funcționare minimă AC** | Minute minime de funcționare înainte de oprire, 0–120 (0 = fără protecție) | `10` |
+| **Senzor geam 1 / 2** | Oprește termostatul când e deschis (opțional) | `binary_sensor.geam_living` |
+| **Senzor temperatură exterior** | Oprește încălzirea la temperaturi mari (opțional) | `sensor.outdoor_temperature` |
 | **Temperatura țintă** | Setpoint inițial | `21.0` |
-| **Histereza** | Banda de toleranță ±X°C | `0.5` |
+| **Histereza** | Banda de toleranță ±X°C (0–2) | `0.5` |
 | **Prag temperatură exterior** | Peste această valoare, încălzirea se oprește | `20.0` |
-| **Temperatura minimă** | Limita inferioară setabilă | `5.0` |
-| **Temperatura maximă** | Limita superioară setabilă | `35.0` |
+| **Temperatura minimă / maximă** | Limitele setabile | `5.0` / `35.0` |
+| **Pasul de temperatură** | Pasul butoanelor +/− și al cadranului | `0.5` |
 
-> **Notă:** Folosești fie **Switch AC** fie **Scenă pornire + Scenă oprire** — nu ambele simultan.
+> **Notă:** Alegi **un singur tip de răcire**. Câmpurile care nu aparțin tipului ales sunt ignorate și golite automat la salvare.
 
 ### Pasul 2 — Adăugați cardul în dashboard
 
@@ -80,6 +106,20 @@ Un termostat inteligent complet pentru Home Assistant, cu control independent pe
 type: custom:smart-thermostat-card
 entity: climate.termostat_living
 ```
+
+---
+
+## ❄️ Tipuri de răcire
+
+| Tip | Cum funcționează |
+|-----|------------------|
+| **Switch** | Pornește / oprește un switch care alimentează sau comandă AC-ul |
+| **Scenă** | Activează o scenă de pornire răcire și una de oprire (ex: AC cu telecomandă IR) |
+| **Climate Entity** | Pune AC-ul pe modul `cool` la temperatura fixă setată și îl oprește cu `off`, respectând timpul minim de funcționare |
+
+**Protecția compresorului (Climate Entity):** dacă termostatul cere oprirea AC-ului înainte de expirarea timpului minim, oprirea este amânată automat până la expirare. Dacă între timp condițiile se schimbă (de exemplu răcirea e cerută din nou), oprirea programată este anulată.
+
+**AC partajat:** dacă mai multe termostate folosesc același AC (aceeași scenă sau aceeași entitate climate), AC-ul se oprește doar când niciunul nu mai are nevoie de răcire.
 
 ---
 
@@ -152,7 +192,7 @@ Când selectezi un preset din card, temperatura țintă se schimbă automat. Câ
 | Arc gri | Termostat blocat sau oprit |
 
 ### Modificare temperatură
-- **Butoane − / +** — pași de 0.5°C
+- **Butoane − / +** — pasul setat în configurare (implicit 0.5°C)
 - **Drag pe cadran** — apucă bulina albă și trage pe arc
 
 ---
@@ -161,8 +201,8 @@ Când selectezi un preset din card, temperatura țintă se schimbă automat. Câ
 
 | Opțiune | Descriere |
 |---------|-----------|
-| Modifică configurația | Schimbă senzori și switch-uri |
-| Modifică parametrii | Temperatură, histereza, prag exterior, min/max |
+| Modifică configurația | Schimbă senzori, switch-uri și tipul de răcire |
+| Modifică parametrii | Temperatură, histereza, prag exterior, min/max, pas |
 | Gestionează preseturi | Adaugă sau șterge preseturi |
 
 ---
@@ -172,7 +212,7 @@ Când selectezi un preset din card, temperatura țintă se schimbă automat. Câ
 Fiecare termostat apare ca **device** în HA (Manufacturer: TopTech Labs), deci poate fi folosit în automatizări prin `device_id` sau `entity_id`:
 
 ```yaml
-# Exemplu: setare temperatură când pleci acasă
+# Exemplu: setare temperatură când pleci de acasă
 action: climate.set_temperature
 target:
   entity_id:
@@ -203,21 +243,29 @@ data:
 ```
 ha-smart-thermostat/
 ├── custom_components/
-│   └── smart_thermostat/
+│   └── toptech_smart_thermostat/
 │       ├── __init__.py
 │       ├── climate.py          ← logica termostatului
 │       ├── config_flow.py      ← interfața de configurare
 │       ├── const.py            ← constante
 │       ├── manifest.json
 │       ├── strings.json
-│       ├── brand/              ← logo și iconițe
-│       └── translations/       ← română + engleză
+│       ├── brand/              ← logo și iconițe (icon.png, icon@2x.png)
+│       └── translations/       ← engleză + română
 ├── www/
 │   └── smart-thermostat-card/
 │       └── smart-thermostat-card.js  ← cardul Lovelace
 ├── hacs.json
 └── README.md
 ```
+
+---
+
+## 📝 Istoric versiuni
+
+- **1.2.0** — folderul integrării a fost redenumit în `toptech_smart_thermostat`; `en.json` tradus în engleză; texte lipsă adăugate în traduceri; README actualizat
+- **1.1.0** — răcire prin climate entity cu protecție de funcționare minimă; pas de temperatură configurabil; logică AC partajată
+- **1.0.0** — lansare inițială
 
 ---
 
